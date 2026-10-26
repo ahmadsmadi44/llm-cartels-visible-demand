@@ -1,0 +1,223 @@
+[
+ {
+  "id": "L01",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s118/trunk",
+  "hours": [
+   12,
+   13,
+   14,
+   15,
+   16,
+   17
+  ]
+ },
+ {
+  "id": "L02",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s106/B0-r0",
+  "hours": [
+   27,
+   28,
+   29,
+   30,
+   31,
+   32
+  ]
+ },
+ {
+  "id": "L03",
+  "model": "qwen3-30b",
+  "run": "sprint/results/pilot_press33/C1/seed1/20261024_123501_C1-s1",
+  "hours": [
+   4,
+   5,
+   6,
+   7,
+   8,
+   9
+  ]
+ },
+ {
+  "id": "L04",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s111/trunk",
+  "hours": [
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ]
+ },
+ {
+  "id": "L05",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/oss_pilot/C1/seed0/20261024_130227_C1-s0",
+  "hours": [
+   10,
+   11,
+   12,
+   13,
+   14,
+   15
+  ]
+ },
+ {
+  "id": "L06",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s131/trunk",
+  "hours": [
+   5,
+   6,
+   7,
+   8,
+   9,
+   10
+  ]
+ },
+ {
+  "id": "L07",
+  "model": "qwen3-30b",
+  "run": "sprint/results/smoke/C1/seed1/20261024_123147_C1-s1",
+  "hours": [
+   9,
+   10,
+   11,
+   12,
+   13,
+   14
+  ]
+ },
+ {
+  "id": "L08",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s122/trunk",
+  "hours": [
+   8,
+   9,
+   10,
+   11,
+   12,
+   13
+  ]
+ },
+ {
+  "id": "L09",
+  "model": "qwen3-30b",
+  "run": "sprint/results/pilot_press33/C1/seed2/20261024_123501_C1-s2",
+  "hours": [
+   6,
+   7,
+   8,
+   9,
+   10,
+   11
+  ]
+ },
+ {
+  "id": "L10",
+  "model": "qwen3-30b",
+  "run": "sprint/results/pilot_paper/C1/seed1/20261024_123502_C1-s1",
+  "hours": [
+   12,
+   13,
+   14,
+   15,
+   16,
+   17
+  ]
+ },
+ {
+  "id": "L11",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s112/trunk",
+  "hours": [
+   8,
+   9,
+   10,
+   11,
+   12,
+   13
+  ]
+ },
+ {
+  "id": "L12",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s114/trunk",
+  "hours": [
+   5,
+   6,
+   7,
+   8,
+   9,
+   10
+  ]
+ },
+ {
+  "id": "L13",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s108/trunk",
+  "hours": [
+   10,
+   11,
+   12,
+   13,
+   14,
+   15
+  ]
+ },
+ {
+  "id": "L14",
+  "model": "qwen3-30b",
+  "run": "sprint/results/pilot_paper/C1/seed0/20261024_123501_C1-s0",
+  "hours": [
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ]
+ },
+ {
+  "id": "L15",
+  "model": "gpt-oss-120b",
+  "run": "sprint/results/breakcartel/chat-s119/trunk",
+  "hours": [
+   2,
+   3,
+   4,
+   5,
+   6,
+   7
+  ]
+ },
+ {
+  "id": "L16",
+  "model": "qwen3-30b",
+  "run": "sprint/results/pilot_press33/C1/seed0/20261024_123501_C1-s0",
+  "hours": [
+   9,
+   10,
+   11,
+   12,
+   13,
+   14
+  ]
+ },
+ {
+  "id": "L17",
+  "model": "qwen3-30b",
+  "run": "sprint/results/smoke/C1/seed0/20261024_123147_C1-s0",
+  "hours": [
+   7,
+   8,
+   9,
+   10,
+   11,
+   12
+  ]
+ }
+]
