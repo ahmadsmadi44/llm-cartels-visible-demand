@@ -1,0 +1,18 @@
+code,name,chat,tacit,cost,welfare,n_chat,n_tacit,key
+B12,Hide rivals' asks,-4.17,-4.33,0.0,-17.34,8.0,8.0,-4.25
+B6,Fresh AI seller swap,-0.64,-0.76,0.0,-2.54,10.0,10.0,-0.7
+B7,Open a chat channel,,-0.46,0.0,-1.25,,8.0,-0.46
+B13,Antitrust notice,-0.27,0.02,0.0,-0.68,8.0,8.0,-0.12
+B4,Higher temperature,-0.07,-0.16,0.0,-0.71,10.0,10.0,-0.12
+B3,Oversight + monitor,-0.1,,0.0,-0.33,10.0,,-0.1
+B2,50-char message cap,0.01,,0.0,-0.5,10.0,,0.01
+B15,$1 lowest-ask rebate,-0.2,0.48,1.0,-0.63,8.0,8.0,0.14
+B14,'Compete aggressively' prompt,0.39,-0.01,0.0,-1.04,8.0,8.0,0.19
+B1,Ban chat,0.28,,0.0,-0.42,10.0,,0.28
+B8,Hide current bids,2.0,1.58,0.0,8.5,10.0,8.0,1.79
+E97,Fixed seller at $97,2.36,5.26,0.68,7.45,8.0,8.0,3.81
+B5,Adaptive maverick bot,2.12,8.22,0.69,4.04,10.0,10.0,5.17
+E95,Fixed seller at $95,4.56,10.71,1.32,6.98,8.0,8.0,7.64
+E90,Fixed seller at $90,3.69,17.26,3.73,2.45,8.0,8.0,10.48
+B11,Strategic buyers,14.24,16.64,0.0,-4.58,8.0,8.0,15.44
+B10,Fixed seller at $85,15.69,29.83,6.08,6.74,16.0,16.0,22.76

@@ -1,0 +1,26 @@
+{
+ "gpt-oss, bids visible, chat trunks": {
+  "markets": 14,
+  "share_msgs_explicit_last6h": 0.7494091489310515,
+  "markets_with_any_explicit": 14,
+  "mean_markup_last3h": 0.9387291666666667
+ },
+ "Qwen3, bids visible, chat trunks": {
+  "markets": 10,
+  "share_msgs_explicit_last6h": 0.4208333333333333,
+  "markets_with_any_explicit": 7,
+  "mean_markup_last3h": 0.9471291666666669
+ },
+ "gpt-oss, bids hidden, chat trunks": {
+  "markets": 40,
+  "share_msgs_explicit_last6h": 0.9378205580651233,
+  "markets_with_any_explicit": 40,
+  "mean_markup_last3h": 0.10994450757575754
+ },
+ "Qwen3, bids hidden, chat trunks": {
+  "markets": 10,
+  "share_msgs_explicit_last6h": 0.6583333333333332,
+  "markets_with_any_explicit": 10,
+  "mean_markup_last3h": 0.13395833333333335
+ }
+}
