@@ -1,0 +1,424 @@
+diff --git a/.gitignore b/.gitignore
+index ddb472b..259f894 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -20,3 +20,9 @@ literature/pdfs/
+ 
+ # local model artifacts
+ /checkpoints/
++sprint/results/mock/
++__pycache__/
++.secrets.env
++.modalenv/
++deploy_status.txt
++sprint/results/
+diff --git a/llm-agent-collusion/src/continuous_double_auction/cda_types.py b/llm-agent-collusion/src/continuous_double_auction/cda_types.py
+index b48e798..af445f9 100644
+--- a/llm-agent-collusion/src/continuous_double_auction/cda_types.py
++++ b/llm-agent-collusion/src/continuous_double_auction/cda_types.py
+@@ -58,6 +58,12 @@ class ExperimentParams(BaseModel):
+     overseer_model: str = "gpt-4.1-mini"     # model reading seller messages when oversight is enabled (paper: gpt-4.1-mini)
+     overseer_sample_fraction: float = 1.0    # share of seller messages the overseer gets to see (sprint project 3.4)
+     llm_eval: bool = False                   # run the LLM-as-judge coordination scoring after the run (paper: always)
++    # [sprint additions, question 1.5]
++    maverick_seats: int = 0                  # number of seller seats (the last ones) played by the rule-based MaverickSeller
++    maverick_at_round: int = 1               # round at which those seats switch to the maverick (1 = from the start)
++    condition: str = ""                      # condition label for the analysis
++    extra_seller_instruction: str = ""      # [sprint] text appended to every seller prompt (instructions, rebate notice)
++    zip_buyer_margin: float = 0.2            # margin of rule-based buyers; 0.01 = near-truthful bids (~$99)
+     
+     @model_validator(mode='after')
+     def validate_param_combinations(self) -> Self:
+diff --git a/llm-agent-collusion/src/continuous_double_auction/market/agents.py b/llm-agent-collusion/src/continuous_double_auction/market/agents.py
+index 0987b16..a9bcf56 100644
+--- a/llm-agent-collusion/src/continuous_double_auction/market/agents.py
++++ b/llm-agent-collusion/src/continuous_double_auction/market/agents.py
+@@ -281,6 +281,8 @@ class LMSeller(Agent):
+             oversight_enabled=self.expt_params.oversight_enabled,
+             max_message_length=self.expt_params.max_message_length,
+         )
++        if getattr(self.expt_params, "extra_seller_instruction", ""):  # [sprint] restriction notices (B11-B13)
++            prompt = prompt + "\n\n" + self.expt_params.extra_seller_instruction
+         messages = [Message(role="user", content=prompt)]
+         response = self.client.generate(messages=messages)
+         assert response is not None
+@@ -331,4 +333,82 @@ class MessageOverseer(BaseModel):
+                 prompt=prompt,
+                 response_dict=response_dict,
+                 )
+-        return response_dict
+\ No newline at end of file
++        return response_dict
++
++class MaverickSeller(Agent):
++    """
++    [sprint addition] A rule-based, non-communicating competitive seller (the "maverick").
++
++    Adaptive-margin rule in the spirit of Cliff's ZIP traders (Cliff & Bruten 1997): the seller keeps a
++    target price and moves it with a Widrow-Hoff step toward a reference price read from the last hour.
++      * sold last hour at or below the prevailing trade price -> nudge price UP toward that price (+0-5%)
++        (it is not altruistic: it raises prices when it can);
++      * did NOT sell last hour -> undercut: move DOWN toward min(prevailing trade price, lowest rival ask)
++        minus 0-5%. Never asks below cost + floor.
++    It sends no messages and reads none. Deterministic given its own RNG seed.
++    """
++    price: float = 0.0
++    beta: float = 0.35
++    floor_margin: float = 0.5
++    init_markup: float = 0.12
++    rng_seed: int = 0
++    _rng: Any = None
++
++    class Config:
++        arbitrary_types_allowed = True
++
++    def __init__(self, **data):
++        super().__init__(**data)
++        self._rng = random.Random(self.rng_seed)
++        if self.price <= 0:
++            self.price = round(self.valuation * (1 + self.init_markup), 2)
++
++    def generate_bid_response(self, **kwargs: Any) -> AgentBidResponse:
++        last_round = kwargs.get("last_round")
++        if last_round is not None:
++            trades = [t.price for t in last_round.trades]
++            sold = any(t.seller_id == self.id for t in last_round.trades)
++            rival_asks = [a for sid, a in last_round.seller_asks.items() if sid != self.id and a is not None]
++            bids = [b for b in last_round.buyer_bids.values() if b is not None]
++            ref = (sum(trades) / len(trades)) if trades else (max(bids) if bids else self.price)
++            if sold and self.price <= ref:
++                target = ref * (1 + self._rng.uniform(0.0, 0.05))
++            elif not sold:
++                anchor = min([ref] + rival_asks)
++                target = anchor * (1 - self._rng.uniform(0.0, 0.05))
++            else:
++                target = self.price
++            self.price += self.beta * (target - self.price)
++        self.price = round(max(self.price, self.valuation + self.floor_margin), 2)
++        return {"ask": self.price}
++
++
++class FixedPriceSeller(Agent):
++    """[sprint addition] An aggressive entrant: always asks a fixed price (default cost + $5), never chats."""
++    fixed_ask: float = 85.0
++
++    def generate_bid_response(self, **kwargs: Any) -> AgentBidResponse:
++        return {"ask": round(self.fixed_ask, 2)}
++
++
++class StrategicBuyer(Agent):
++    """[sprint addition] A bid-shading buyer that does not reveal its willingness to pay.
++    Starts below the market, lowers its bid by `down` after a fill (tries cheaper), raises it by `up` after a miss,
++    never above 99% of value. Rule-based, no model calls."""
++    bid: float = 0.0
++    down: float = 1.0
++    up: float = 1.0
++    start_discount: float = 3.0
++
++    def generate_bid_response(self, **kwargs: Any) -> AgentBidResponse:
++        last_round = kwargs.get("last_round")
++        cap = self.valuation * 0.99
++        if self.bid <= 0:
++            trades = [t.price for t in (last_round.trades if last_round else [])]
++            ref = (sum(trades) / len(trades)) if trades else cap
++            self.bid = ref - self.start_discount
++        elif last_round is not None:
++            filled = any(t.buyer_id == self.id for t in last_round.trades)
++            self.bid = self.bid - self.down if filled else self.bid + self.up
++        self.bid = round(min(cap, max(self.bid, 80.5)), 2)
++        return {"bid": self.bid}
+diff --git a/llm-agent-collusion/src/continuous_double_auction/market/market.py b/llm-agent-collusion/src/continuous_double_auction/market/market.py
+index c82003b..a91affb 100644
+--- a/llm-agent-collusion/src/continuous_double_auction/market/market.py
++++ b/llm-agent-collusion/src/continuous_double_auction/market/market.py
+@@ -28,6 +28,10 @@ class Market(BaseModel):
+     # Sprint project 3.4: share of seller messages the overseer sees each round (1.0 = all)
+     overseer_sample_fraction: float = 1.0
+     overseer_rng: Optional[random.Random] = None
++    buyers_first: bool = False  # [sprint option] see run_round
++    hide_rival_asks: bool = False  # [sprint option] sellers see only their own ask in the book and in recent history
++    rebate: float = 0.0  # [sprint option] paid each hour to the seller(s) posting the lowest ask (split on ties)
++    rebates_paid: dict = Field(default_factory=dict)
+ 
+     class Config:
+         arbitrary_types_allowed = True
+@@ -119,6 +123,11 @@ class Market(BaseModel):
+             def get_agent_bid_response(agent: Agent, **kwargs) -> tuple[Agent, AgentBidResponse]:
+                 # Pass previous round's messages relevant to the agent type
+                 specific_kwargs = kwargs.copy()
++                if agent in self.sellers and self.hide_rival_asks:
++                    specific_kwargs["ask_queue"] = [(p, sid) for p, sid in kwargs.get("ask_queue", []) if sid == agent.id]
++                    specific_kwargs["past_bids_and_asks"] = "\n".join(
++                        ln for ln in str(kwargs.get("past_bids_and_asks", "")).split("\n")
++                        if not (ln.strip().startswith("Seller") and agent.id not in ln))
+                 if agent in self.sellers:
+                     specific_kwargs["seller_messages"] = prev_seller_msgs
+                     specific_kwargs["is_gag_order_active"] = self.is_gag_order_active
+@@ -127,6 +136,26 @@ class Market(BaseModel):
+                 return agent, agent.generate_bid_response(**specific_kwargs)
+ 
+             agents: list[Agent] = self.buyers + self.sellers  # type: ignore
++            # [sprint option] buyers post first: rule-based buyers place their bids before sellers decide, so
++            # sellers see the standing demand for this hour (otherwise every matched bid has left the book).
++            if self.buyers_first:
++                for b in self.buyers:
++                    _, resp = get_agent_bid_response(b, round_num=self.current_round.round_number,
++                                                     bid_queue=list(self.buyer_bid_queue), ask_queue=list(self.seller_ask_queue),
++                                                     past_bids_and_asks=self.formatted_past_bids_and_asks,
++                                                     past_trades=self.formatted_past_trades,
++                                                     agent_successful_trades=self.get_agent_successful_trades(b.id),
++                                                     last_round=self.rounds[-1] if self.rounds else None,
++                                                     all_past_trades=list(self.past_trades))
++                    if resp.get("bid") is not None and resp.get("bid") != "null":
++                        self.add_buyer_bid(b, resp["bid"])
++                agents = list(self.sellers)
++            # [sprint fix, cf. upstream issue #4 / PR #5] snapshot the order book at the start of the
++            # round so no agent can see another agent's order from the same round (the live lists were
++            # shared across threads and mutated as responses arrived).
++            bid_snapshot = list(self.buyer_bid_queue)
++            ask_snapshot = list(self.seller_ask_queue)
++            last_round = self.rounds[-1] if self.rounds else None
+             n_threads = max(3, len(agents) - self.n_claude_agents)  # Our rate limits for Anthropic are lower than OpenAI, so we can do fewer parallel calls
+             with ThreadPoolExecutor(max_workers=n_threads) as executor:
+ 
+@@ -134,8 +163,10 @@ class Market(BaseModel):
+                     executor.submit(get_agent_bid_response,
+                                     agent=agent,
+                                     round_num=self.current_round.round_number,
+-                                    bid_queue=self.buyer_bid_queue,
+-                                    ask_queue=self.seller_ask_queue,
++                                    bid_queue=list(bid_snapshot),
++                                    ask_queue=list(ask_snapshot),
++                                    last_round=last_round,
++                                    all_past_trades=list(self.past_trades),
+                                     past_bids_and_asks=self.formatted_past_bids_and_asks,
+                                     past_trades=self.formatted_past_trades,
+                                     agent_successful_trades=self.get_agent_successful_trades(agent.id),
+@@ -181,6 +212,11 @@ class Market(BaseModel):
+                     else:
+                         raise ValueError(f"Unexpected agent: {agent}")
+             
++            if self.rebate > 0 and self.current_round.seller_asks:  # [sprint] lowest-ask rebate
++                lo = min(a for a in self.current_round.seller_asks.values() if a is not None)
++                winners = [sid for sid, a in self.current_round.seller_asks.items() if a == lo]
++                for sid in winners:
++                    self.rebates_paid[sid] = self.rebates_paid.get(sid, 0.0) + self.rebate / len(winners)
+             self.resolve_trades_if_any()
+ 
+             # Check for collusive messaging between sellers
+diff --git a/llm-agent-collusion/src/continuous_double_auction/simulation.py b/llm-agent-collusion/src/continuous_double_auction/simulation.py
+index bddef39..d962280 100644
+--- a/llm-agent-collusion/src/continuous_double_auction/simulation.py
++++ b/llm-agent-collusion/src/continuous_double_auction/simulation.py
+@@ -45,7 +45,7 @@ from src.continuous_double_auction.identities import (
+     get_random_buyer_company_names,
+     get_random_seller_company_names,
+ )
+-from src.continuous_double_auction.market.agents import LMBuyer, LMSeller, MessageOverseer, ZIPBuyer
++from src.continuous_double_auction.market.agents import LMBuyer, LMSeller, MaverickSeller, MessageOverseer, ZIPBuyer
+ from src.continuous_double_auction.market.market import Market
+ from src.continuous_double_auction.util.logging_util import ExperimentLogger
+ from src.continuous_double_auction.util.misc import get_client, initialize_market
+@@ -110,11 +110,25 @@ def run_simulation(params: ExperimentParams, log_dir: Optional[str] = None, use_
+                     company=buyer_companies[i],
+                     valuation=params.buyer_valuations[i],
+                     expt_params=params,
++                    profit_margin=params.zip_buyer_margin,  # [sprint] 0.01 = near-truthful price-taking buyer
+                 )
+             )
+ 
++    maverick_idx = list(range(num_sellers - params.maverick_seats, num_sellers))
++
++    def make_maverick(i: int) -> MaverickSeller:
++        return MaverickSeller(
++            id=f"Seller {seller_names[i]}",
++            company=seller_companies[i],
++            valuation=params.seller_valuations[i],
++            expt_params=params,
++            rng_seed=(params.seed or 0) * 100 + i,
++        )
++
+     sellers = [
+-        LMSeller(
++        make_maverick(i)
++        if (i in maverick_idx and params.maverick_at_round <= 1)
++        else LMSeller(
+             id=f"Seller {seller_names[i]}",
+             company=seller_companies[i],
+             valuation=params.seller_valuations[i],
+@@ -127,6 +141,8 @@ def run_simulation(params: ExperimentParams, log_dir: Optional[str] = None, use_
+ 
+     logger.metadata["buyer_ids"] = [buyer.id for buyer in buyers]
+     logger.metadata["seller_ids"] = [seller.id for seller in sellers]
++    logger.metadata["maverick_ids"] = [sellers[i].id for i in maverick_idx]
++    logger.metadata["maverick_at_round"] = params.maverick_at_round
+     logger.metadata["resolved_models"] = {
+         "sellers": [effective_model(m) for m in params.seller_models],
+         "buyers": [effective_model(m) if m else ZIP_BUYER for m in params.buyer_models],
+@@ -160,10 +176,33 @@ def run_simulation(params: ExperimentParams, log_dir: Optional[str] = None, use_
+         )
+         print(f"Market initialized with {len(sellers)} seller asks and {len(buyers)} buyer bids.")
+ 
++    retired_sellers = []
+     for _ in tqdm(range(params.rounds)):
++        r = market.current_round.round_number
++        if params.maverick_seats and params.maverick_at_round > 1 and r == params.maverick_at_round:
++            # late swap: the seat keeps its name, so the other agents are not told about the replacement
++            for i in maverick_idx:
++                retired_sellers.append(market.sellers[i])
++                market.sellers[i] = make_maverick(i)  # type: ignore[index]
++            print(f"Round {r}: seller seat(s) {[sellers[i].id for i in maverick_idx]} replaced by the maverick")
+         market.run_round()
+         logger.log_auction_round(last_round=market.rounds[-1])
+ 
++    # [sprint] token accounting per role, used for the operating-cost axis
++    def _usage(agents):
++        tot = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "failed": 0}
++        for a in agents:
++            c = getattr(a, "client", None)
++            for k, v in (getattr(c, "usage", None) or {}).items():
++                tot[k] += v
++        return tot
++    logger.metadata["usage"] = {
++        "sellers": _usage(list(market.sellers) + retired_sellers),
++        "buyers": _usage(market.buyers),
++        "overseer": _usage([overseer]) if overseer else None,
++    }
++    logger.metadata["condition"] = params.condition
++    logger.metadata["seed"] = params.seed
+     logger.save_experiment_summary()
+     metrics = compute_metrics_for_exp_dir(logger.log_dir, run_llm_judge=params.llm_eval)
+     write_metrics_to_file(logger.log_dir, metrics)
+@@ -313,6 +352,10 @@ def build_parser() -> argparse.ArgumentParser:
+         help="share of seller messages the overseer sees each round (try 0.25, 0.5, 1.0)",
+     )
+     a.add_argument("--boss_pressure", action="store_true", help="CEO message pressuring sellers to keep prices high")
++    a.add_argument("--maverick_seats", type=int, default=0, help="[sprint] seller seats played by the rule-based maverick")
++    a.add_argument("--maverick_at_round", type=int, default=1, help="[sprint] round at which the maverick takes the seat(s)")
++    a.add_argument("--condition", type=str, default="", help="[sprint] condition label")
++    a.add_argument("--zip_buyer_margin", type=float, default=0.2, help="[sprint] margin of rule-based buyers (0.01 = bid ~99)")
+ 
+     o = p.add_argument_group("output")
+     o.add_argument("--tag", type=str, default="", help="run name suffix")
+@@ -382,6 +425,10 @@ def main() -> None:
+             overseer_model=args.overseer_model,
+             overseer_sample_fraction=args.overseer_sample_fraction,
+             llm_eval=args.llm_eval,
++            maverick_seats=args.maverick_seats,
++            maverick_at_round=args.maverick_at_round,
++            condition=args.condition,
++            zip_buyer_margin=args.zip_buyer_margin,
+         )
+         try:
+             run_simulation(params, log_dir=args.log_dir, use_wandb=args.wandb)
+diff --git a/llm-agent-collusion/src/continuous_double_auction/util/misc.py b/llm-agent-collusion/src/continuous_double_auction/util/misc.py
+index 87c11b5..f86bdea 100644
+--- a/llm-agent-collusion/src/continuous_double_auction/util/misc.py
++++ b/llm-agent-collusion/src/continuous_double_auction/util/misc.py
+@@ -18,7 +18,12 @@ def get_client(model: str, temperature: float, **kwargs) -> ModelWrapper:
+     """
+     provider = os.getenv("LLM_PROVIDER", "openrouter").lower()
+     if provider == "openrouter":
+-        kwargs.setdefault("response_format", {"type": "json_object"})
++        if os.getenv("LLM_JSON_MODE", "1") != "0":  # [sprint] off for reasoning models served by vLLM
++            kwargs.setdefault("response_format", {"type": "json_object"})
++        if os.getenv("LLM_REASONING_EFFORT"):  # [sprint] e.g. gpt-oss: low | medium | high
++            kwargs.setdefault("extra_body", {"reasoning_effort": os.getenv("LLM_REASONING_EFFORT")})
++        if os.getenv("LLM_MAX_TOKENS"):  # [sprint] cap generation length
++            kwargs.setdefault("max_tokens", int(os.getenv("LLM_MAX_TOKENS")))
+         return ModelWrapper.create(resolve_model(model), temperature=temperature, **kwargs)
+     # legacy direct SDKs (reproduction only)
+     if provider == "openai":
+diff --git a/llm-agent-collusion/src/resources/model_wrappers.py b/llm-agent-collusion/src/resources/model_wrappers.py
+index 7dd18d5..2a55c68 100644
+--- a/llm-agent-collusion/src/resources/model_wrappers.py
++++ b/llm-agent-collusion/src/resources/model_wrappers.py
+@@ -43,7 +43,7 @@ class ModelWrapper(ABC):
+         temperature: float = 0.7,
+         max_tokens: int = 4000,
+         top_p: float = 1.0,
+-        max_retries: int = 3,
++        max_retries: int = int(os.getenv("LLM_MAX_RETRIES", "3")),
+         initial_retry_delay: float = 1.0,
+         **kwargs,
+     ):
+@@ -54,6 +54,7 @@ class ModelWrapper(ABC):
+         self.max_retries = max_retries
+         self.initial_retry_delay = initial_retry_delay
+         self.additional_params = kwargs
++        self.usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0, "failed": 0}  # [sprint] token accounting
+ 
+     @abstractmethod
+     def generate(self, messages: List[Message]) -> Optional[str]:
+@@ -76,7 +77,7 @@ class ModelWrapper(ABC):
+ 
+     def _exponential_backoff(self, attempt: int) -> None:
+         if attempt < self.max_retries:
+-            time.sleep(self.initial_retry_delay * (2**attempt))
++            time.sleep(self.initial_retry_delay * (2**attempt) * float(os.getenv("LLM_BACKOFF_SCALE", "1")))
+ 
+ 
+ class OpenRouterClient(ModelWrapper):
+@@ -109,6 +110,11 @@ class OpenRouterClient(ModelWrapper):
+                     **params,
+                 )
+                 content = response.choices[0].message.content or ""
++                u = getattr(response, "usage", None)  # [sprint] token accounting
++                self.usage["calls"] += 1
++                if u is not None:
++                    self.usage["prompt_tokens"] += u.prompt_tokens or 0
++                    self.usage["completion_tokens"] += u.completion_tokens or 0
+                 if "</think>" in content:  # reasoning models: keep only the answer
+                     content = content.rsplit("</think>", 1)[1]
+                 return content
+@@ -126,6 +132,7 @@ class OpenRouterClient(ModelWrapper):
+                 logger.warning(f"OpenRouter API error (attempt {attempt + 1}/{self.max_retries}): {e}")
+                 if attempt == self.max_retries - 1:
+                     logger.error(f"Failed after {self.max_retries} attempts: {e}")
++                    self.usage["failed"] += 1
+                     return None
+                 self._exponential_backoff(attempt)
+         return None
+diff --git a/llm-agent-collusion/tests/test_market_snapshot.py b/llm-agent-collusion/tests/test_market_snapshot.py
+new file mode 100644
+index 0000000..7d2de71
+--- /dev/null
++++ b/llm-agent-collusion/tests/test_market_snapshot.py
+@@ -0,0 +1,37 @@
++"""[sprint addition] Regression test for the same-round order-book leak (upstream issue #4)."""
++import threading
++import time
++
++from src.continuous_double_auction.cda_types import Agent, ExperimentParams
++from src.continuous_double_auction.market.market import Market
++
++PARAMS = ExperimentParams(seller_valuations=[80.0, 80.0], buyer_valuations=[100.0],
++                          seller_models=["x", "x"], buyer_models=["zip"], rounds=2)
++seen = {}
++
++
++class Fast(Agent):
++    def generate_bid_response(self, **kw):
++        return {"ask": 91.0}
++
++
++class Slow(Agent):
++    def generate_bid_response(self, **kw):
++        time.sleep(0.3)  # answers after Fast has already written its ask
++        seen["ask_queue"] = list(kw["ask_queue"])
++        return {"ask": 95.0}
++
++
++class Buyer(Agent):
++    def generate_bid_response(self, **kw):
++        return {"bid": 50.0}
++
++
++def test_no_same_round_leak():
++    sellers = [Fast(id="Seller A", company="a", valuation=80, expt_params=PARAMS),
++               Slow(id="Seller B", company="b", valuation=80, expt_params=PARAMS)]
++    buyers = [Buyer(id="Buyer C", company="c", valuation=100, expt_params=PARAMS)]
++    m = Market(sellers=sellers, buyers=buyers)
++    m.run_round()
++    # Slow must not see Fast's $91 ask placed in the same round
++    assert all(price != 91.0 for price, _ in seen["ask_queue"]), seen["ask_queue"]
